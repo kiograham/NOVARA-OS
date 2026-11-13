@@ -5,6 +5,7 @@
 #include "memory/multiboot2.h"
 #include "memory/pmm.h"
 #include "memory/vmm.h"
+#include "memory/heap.h"
 
 #define MULTIBOOT2_BOOT_MAGIC 0x36D76289
 
@@ -160,6 +161,77 @@ void kernel_main(uint32_t boot_magic, uint64_t multiboot_info_address)
         kernel_panic("VMM Test Physical Page Release Failed");
 
     screen_write("VMM physical page release: PASS\n");
+
+    screen_write("\n=== KERNEL HEAP ALLOCATOR ===\n");
+
+    if (!heap_init())
+        kernel_panic("Heap Initialization Failed");
+
+    screen_write("Heap initialization: PASS\n");
+
+    void *block_a = kmalloc(64);
+    void *block_b = kmalloc(128);
+
+    if (block_a == 0 || block_b == 0)
+        kernel_panic("Heap Allocation Failed");
+
+    if (block_a == block_b ||
+        (uintptr_t)block_a % HEAP_ALIGNMENT != 0 ||
+        (uintptr_t)block_b % HEAP_ALIGNMENT != 0)
+        kernel_panic("Heap Alignment Test Failed");
+
+    screen_write("Memory allocation and alignment: PASS\n");
+
+    *(uint64_t *)block_a = 0x4E4F56415241ULL;
+    *(uint64_t *)block_b = 0x484541504F53ULL;
+
+    if (*(uint64_t *)block_a != 0x4E4F56415241ULL ||
+        *(uint64_t *)block_b != 0x484541504F53ULL)
+        kernel_panic("Heap Read Write Test Failed");
+
+    screen_write("Heap read/write: PASS\n");
+
+    if (!kfree(block_a) || !kfree(block_b))
+        kernel_panic("Heap Free Test Failed");
+
+    if (heap_get_used() != 0)
+        kernel_panic("Heap Usage Tracking Failed");
+
+    screen_write("Memory release and coalescing: PASS\n");
+
+    if (kfree(block_b))
+        kernel_panic("Heap Double Free Protection Failed");
+
+    screen_write("Double free protection: PASS\n");
+
+    void *large_block = kmalloc(5000);
+
+    if (large_block == 0)
+        kernel_panic("Heap Growth Allocation Failed");
+
+    if (heap_get_capacity() < 2 * HEAP_PAGE_SIZE)
+        kernel_panic("Heap Growth Test Failed");
+
+    volatile uint64_t *large_memory =
+        (volatile uint64_t *)large_block;
+
+    large_memory[0] = 0x4E4F56415241ULL;
+    large_memory[624] = 0x484541504F53ULL;
+
+    if (large_memory[0] != 0x4E4F56415241ULL ||
+        large_memory[624] != 0x484541504F53ULL)
+        kernel_panic("Heap Growth Read Write Test Failed");
+
+    screen_write("Dynamic heap growth: PASS\n");
+
+    if (!kfree(large_block))
+        kernel_panic("Large Heap Block Release Failed");
+
+    if (heap_get_used() != 0)
+        kernel_panic("Final Heap Usage Tracking Failed");
+
+    screen_write("All heap tests passed.\n");
+
 
     screen_write("All PMM and VMM tests passed.\n");
     screen_write("Kernel status: RUNNING");

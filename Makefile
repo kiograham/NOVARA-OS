@@ -17,7 +17,7 @@ build:
 build/boot.o: boot/boot.asm | build
 	$(NASM) -f elf64 $< -o $@
 
-build/kernel.o: kernel/kernel.c kernel/screen.h kernel/interrupts/idt.h kernel/memory/multiboot2.h kernel/memory/vmm.h | build
+build/kernel.o: kernel/kernel.c kernel/screen.h kernel/interrupts/idt.h kernel/memory/multiboot2.h kernel/memory/vmm.h kernel/memory/heap.h | build
 	$(CC) $(CFLAGS) -c $< -o $@
 
 build/screen.o: kernel/screen.c kernel/screen.h | build
@@ -41,10 +41,13 @@ build/pmm.o: kernel/memory/pmm.c kernel/memory/pmm.h kernel/memory/multiboot2.h 
 build/vmm.o: kernel/memory/vmm.c kernel/memory/vmm.h kernel/memory/pmm.h | build
 	$(CC) $(CFLAGS) -c $< -o $@
 
+build/heap.o: kernel/memory/heap.c kernel/memory/heap.h kernel/memory/pmm.h kernel/memory/vmm.h | build
+	$(CC) $(CFLAGS) -c $< -o $@
+
 build/isr.o: kernel/interrupts/isr.asm | build
 	$(NASM) -f elf64 $< -o $@
 
-build/kernel.elf: build/boot.o build/kernel.o build/screen.o build/idt.o build/exception.o build/panic.o build/multiboot2.o build/pmm.o build/vmm.o build/isr.o linker.ld
+build/kernel.elf: build/boot.o build/kernel.o build/screen.o build/idt.o build/exception.o build/panic.o build/multiboot2.o build/pmm.o build/vmm.o build/heap.o build/isr.o linker.ld
 	$(LD) -m elf_x86_64 -z max-page-size=0x1000 -T linker.ld -o $@ $(filter %.o,$^)
 
 build/novara.iso: build/kernel.elf iso/boot/grub/grub.cfg
