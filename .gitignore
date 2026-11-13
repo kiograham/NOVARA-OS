@@ -1,0 +1,11 @@
+# Build artifacts
+build/
+
+# Compiled files
+*.o
+*.elf
+*.iso
+
+# Temporary files
+*.tmp
+*~
