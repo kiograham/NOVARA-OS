@@ -69,9 +69,15 @@ _start:
     cmp ecx, 512
     jne .map_pages
 
-    ; Enable PAE
+    ; Configure FPU
+    mov eax, cr0
+    and eax, 0xFFFFFFFB
+    or eax, 1 << 1
+    mov cr0, eax
+
+    ; Enable PAE and SSE
     mov eax, cr4
-    or eax, 1 << 5
+    or eax, (1 << 5) | (1 << 9) | (1 << 10)
     mov cr4, eax
 
     ; Load page table
