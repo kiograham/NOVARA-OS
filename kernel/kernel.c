@@ -4,6 +4,7 @@
 #include "interrupts/idt.h"
 #include "memory/multiboot2.h"
 #include "memory/pmm.h"
+#include "memory/vmm.h"
 
 #define MULTIBOOT2_BOOT_MAGIC 0x36D76289
 
@@ -67,6 +68,13 @@ void kernel_main(uint32_t boot_magic, uint64_t multiboot_info_address)
 
     screen_write("Physical Memory Manager: INITIALIZED\n");
 
+    screen_write("\n=== VIRTUAL MEMORY MANAGER ===\n");
+
+    if (!vmm_init())
+        kernel_panic("Virtual Memory Manager Initialization Failed");
+
+    screen_write("Virtual Memory Manager: INITIALIZED\n");
+
     uint64_t free_before = pmm_get_free_pages();
 
     screen_write("Free physical pages: ");
@@ -103,7 +111,57 @@ void kernel_main(uint32_t boot_magic, uint64_t multiboot_info_address)
 
     screen_write("Kernel memory protection: PASS\n");
 
-    screen_write("All PMM tests passed.\n");
+    screen_write("\n=== VMM TEST ===\n");
+
+    uint64_t identity_address = 0x200000ULL;
+
+    if (vmm_get_physical_address(identity_address) != identity_address)
+        kernel_panic("VMM Identity Mapping Test Failed");
+
+    screen_write("Identity mapping: PASS\n");
+
+    uint64_t virtual_test_address = 0x40000000ULL;
+    uint64_t physical_test_page = pmm_alloc_page();
+
+    if (physical_test_page == 0)
+        kernel_panic("VMM Test Physical Allocation Failed");
+
+    if (!vmm_map_page(
+            virtual_test_address,
+            physical_test_page,
+            VMM_PRESENT | VMM_WRITABLE))
+        kernel_panic("VMM Page Mapping Failed");
+
+    if (vmm_get_physical_address(virtual_test_address) != physical_test_page)
+        kernel_panic("VMM Address Translation Test Failed");
+
+    screen_write("Virtual page mapping: PASS\n");
+    screen_write("Address translation: PASS\n");
+
+    volatile uint64_t *test_memory =
+        (volatile uint64_t *)(uintptr_t)virtual_test_address;
+
+    *test_memory = 0x4E4F564152414F53ULL;
+
+    if (*test_memory != 0x4E4F564152414F53ULL)
+        kernel_panic("VMM Memory Access Test Failed");
+
+    screen_write("Virtual memory read/write: PASS\n");
+
+    if (!vmm_unmap_page(virtual_test_address))
+        kernel_panic("VMM Page Unmapping Failed");
+
+    if (vmm_get_physical_address(virtual_test_address) != 0)
+        kernel_panic("VMM Unmapping Verification Failed");
+
+    screen_write("Virtual page unmapping: PASS\n");
+
+    if (!pmm_free_page(physical_test_page))
+        kernel_panic("VMM Test Physical Page Release Failed");
+
+    screen_write("VMM physical page release: PASS\n");
+
+    screen_write("All PMM and VMM tests passed.\n");
     screen_write("Kernel status: RUNNING");
 
     while (1)
