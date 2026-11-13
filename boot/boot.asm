@@ -10,6 +10,14 @@ header_start:
     dd header_end - header_start
     dd -(0xe85250d6 + (header_end - header_start))
 
+    ; Request Multiboot2 Memory Map (information type 6)
+    dw 1
+    dw 0
+    dd 12
+    dd 6
+    align 8
+
+    ; End Tag
     dw 0
     dw 0
     dd 8
@@ -29,7 +37,14 @@ p3_table:
 p2_table:
     resb 4096
 
-align 16
+align 4
+multiboot_info_ptr:
+    resd 1
+
+multiboot_magic:
+    resd 1
+
+alignb 16
 stack_bottom:
     resb 16384
 stack_top:
@@ -41,6 +56,12 @@ extern kernel_main
 
 _start:
     cli
+
+    ; Simpan Boot Magic dari GRUB
+    mov [multiboot_magic], eax
+
+    ; Simpan alamat informasi Multiboot2 dari GRUB
+    mov [multiboot_info_ptr], ebx
 
     mov esp, stack_top
 
@@ -111,6 +132,12 @@ long_mode_start:
     mov ss, ax
 
     mov rsp, stack_top
+
+    ; Argumen pertama: Boot Magic
+    mov edi, dword [rel multiboot_magic]
+
+    ; Argumen kedua: alamat informasi Multiboot2
+    mov esi, dword [rel multiboot_info_ptr]
 
     call kernel_main
 

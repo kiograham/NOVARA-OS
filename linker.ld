@@ -9,6 +9,7 @@ PHDRS
 SECTIONS
 {
     . = 1M;
+    __kernel_start = .;
 
     .multiboot2 :
     {
@@ -18,52 +19,43 @@ SECTIONS
     .text :
     {
         *(.text)
+        *(.text.*)
     } :text
 
     .rodata :
     {
         *(.rodata)
+        *(.rodata.*)
     } :text
 
-    .data :
-    {
-        *(.data)
-    } :data
-
-    .bss :
-    {
-        *(COMMON)
-        *(.bss)
-    } :data
-}ENTRY(_start)
-
-SECTIONS
-{
-    . = 1M;
-
-    .multiboot2 :
-    {
-        KEEP(*(.multiboot2))
-    }
-
-    .text :
-    {
-        *(.text)
-    }
-
-    .rodata :
-    {
-        *(.rodata)
-    }
+    . = ALIGN(0x1000);
+    __kernel_data_start = .;
 
     .data :
     {
         *(.data)
-    }
+        *(.data.*)
+    } :data
 
-    .bss :
+    .bss (NOLOAD) :
     {
+        . = ALIGN(0x1000);
+        __bss_start = .;
+
         *(COMMON)
         *(.bss)
+        *(.bss.*)
+
+        . = ALIGN(0x1000);
+        __bss_end = .;
+    } :data
+
+    __kernel_end = .;
+
+    /DISCARD/ :
+    {
+        *(.eh_frame*)
+        *(.note*)
+        *(.comment)
     }
 }
