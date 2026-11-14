@@ -162,6 +162,45 @@ void kernel_main(uint32_t boot_magic, uint64_t multiboot_info_address)
 
     screen_write("VMM physical page release: PASS\n");
 
+    screen_write("\n=== NX MEMORY PROTECTION ===\n");
+
+    uint64_t nx_test_page = pmm_alloc_page();
+
+    if (nx_test_page == 0)
+        kernel_panic("NX Test Physical Allocation Failed");
+
+    if (!vmm_map_page(
+            virtual_test_address,
+            nx_test_page,
+            VMM_PRESENT | VMM_WRITABLE | VMM_NO_EXEC))
+        kernel_panic("NX Page Mapping Failed");
+
+    if (vmm_is_page_no_exec(virtual_test_address) != 1)
+        kernel_panic("NX Protection Verification Failed");
+
+    screen_write("NX page protection flag: PASS\n");
+
+    volatile uint64_t *nx_test_memory =
+        (volatile uint64_t *)(uintptr_t)virtual_test_address;
+
+    *nx_test_memory = 0x4E584E4F56415241ULL;
+
+    if (*nx_test_memory != 0x4E584E4F56415241ULL)
+        kernel_panic("NX Read Write Test Failed");
+
+    screen_write("NX page read/write access: PASS\n");
+
+    if (!vmm_unmap_page(virtual_test_address))
+        kernel_panic("NX Page Unmapping Failed");
+
+    if (vmm_is_page_no_exec(virtual_test_address) != -1)
+        kernel_panic("NX Unmapping Verification Failed");
+
+    if (!pmm_free_page(nx_test_page))
+        kernel_panic("NX Test Physical Page Release Failed");
+
+    screen_write("NX page unmapping and release: PASS\n");
+
     screen_write("\n=== KERNEL HEAP ALLOCATOR ===\n");
 
     if (!heap_init())

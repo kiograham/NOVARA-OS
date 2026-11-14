@@ -25,5 +25,6 @@ int vmm_unmap_page(uint64_t virtual_address);
 
 /* Translate virtual address to physical address */
 uint64_t vmm_get_physical_address(uint64_t virtual_address);
+int vmm_is_page_no_exec(uint64_t virtual_address);
 
 #endif

@@ -123,7 +123,7 @@ static int split_large_page(volatile uint64_t *pde)
 
     uint64_t physical_base = old_entry & LARGE_2M_MASK;
 
-    uint64_t flags = old_entry & 0x1FFFULL;
+    uint64_t flags = (old_entry & 0x1FFFULL) | (old_entry & VMM_NO_EXEC);
 
     /* Convert large-page PAT bit to 4 KiB PAT bit. */
     int pat = (flags & (1ULL << 12)) != 0;
@@ -142,13 +142,72 @@ static int split_large_page(volatile uint64_t *pde)
     *pde = table_address |
            PAGE_PRESENT |
            PAGE_WRITABLE |
-           (old_entry & PAGE_USER);
+           (old_entry & PAGE_USER) |
+           (old_entry & VMM_NO_EXEC);
 
     return 1;
 }
 
+static void cpuid(
+    uint32_t leaf,
+    uint32_t subleaf,
+    uint32_t *a,
+    uint32_t *b,
+    uint32_t *c,
+    uint32_t *d)
+{
+    __asm__ volatile (
+        "cpuid"
+        : "=a"(*a), "=b"(*b), "=c"(*c), "=d"(*d)
+        : "a"(leaf), "c"(subleaf)
+    );
+}
+
+static int enable_nx(void)
+{
+    uint32_t a, b, c, d;
+
+    cpuid(0x80000000U, 0, &a, &b, &c, &d);
+
+    if (a < 0x80000001U)
+        return 0;
+
+    cpuid(0x80000001U, 0, &a, &b, &c, &d);
+
+    /* Extended CPUID EDX bit 20 indicates NX support. */
+    if (!(d & (1U << 20)))
+        return 0;
+
+    uint32_t low, high;
+
+    __asm__ volatile (
+        "rdmsr"
+        : "=a"(low), "=d"(high)
+        : "c"(0xC0000080U)
+    );
+
+    low |= (1U << 11);
+
+    __asm__ volatile (
+        "wrmsr"
+        :
+        : "c"(0xC0000080U), "a"(low), "d"(high)
+    );
+
+    __asm__ volatile (
+        "rdmsr"
+        : "=a"(low), "=d"(high)
+        : "c"(0xC0000080U)
+    );
+
+    return (low & (1U << 11)) != 0;
+}
+
 int vmm_init(void)
 {
+    if (!enable_nx())
+        return 0;
+
     uint64_t root = read_cr3();
 
     if (root == 0 || root >= MEMORY_LIMIT)
@@ -173,8 +232,7 @@ int vmm_map_page(
         physical_address >= PHYSICAL_ADDRESS_LIMIT)
         return 0;
 
-    /* NX is not enabled in the current boot configuration. */
-    if (flags & ~(VMM_PRESENT | VMM_WRITABLE | VMM_USER))
+    if (flags & ~(VMM_PRESENT | VMM_WRITABLE | VMM_USER | VMM_NO_EXEC))
         return 0;
 
     uint64_t root = read_cr3();
@@ -227,6 +285,9 @@ int vmm_map_page(
 
     if (flags & VMM_USER)
         entry_flags |= PAGE_USER;
+
+    if (flags & VMM_NO_EXEC)
+        entry_flags |= VMM_NO_EXEC;
 
     pt[pt_index] = physical_address | entry_flags;
 
@@ -346,4 +407,78 @@ uint64_t vmm_get_physical_address(uint64_t virtual_address)
 
     return (pt[i1] & ADDRESS_MASK) |
            (virtual_address & 0xFFFULL);
+}
+
+int vmm_is_page_no_exec(uint64_t virtual_address)
+{
+    if (!is_canonical(virtual_address))
+        return -1;
+
+    volatile uint64_t *pml4 =
+        physical_to_table(read_cr3());
+
+    if (pml4 == 0)
+        return -1;
+
+    uint64_t i4 = (virtual_address >> 39) & 0x1FF;
+    uint64_t i3 = (virtual_address >> 30) & 0x1FF;
+    uint64_t i2 = (virtual_address >> 21) & 0x1FF;
+    uint64_t i1 = (virtual_address >> 12) & 0x1FF;
+
+    uint64_t entry = pml4[i4];
+
+    if (!(entry & PAGE_PRESENT))
+        return -1;
+
+    int no_exec = (entry & VMM_NO_EXEC) != 0;
+
+    volatile uint64_t *pdpt =
+        physical_to_table(entry & ADDRESS_MASK);
+
+    if (pdpt == 0)
+        return -1;
+
+    entry = pdpt[i3];
+
+    if (!(entry & PAGE_PRESENT))
+        return -1;
+
+    if (entry & VMM_NO_EXEC)
+        no_exec = 1;
+
+    if (entry & PAGE_HUGE)
+        return no_exec;
+
+    volatile uint64_t *pd =
+        physical_to_table(entry & ADDRESS_MASK);
+
+    if (pd == 0)
+        return -1;
+
+    entry = pd[i2];
+
+    if (!(entry & PAGE_PRESENT))
+        return -1;
+
+    if (entry & VMM_NO_EXEC)
+        no_exec = 1;
+
+    if (entry & PAGE_HUGE)
+        return no_exec;
+
+    volatile uint64_t *pt =
+        physical_to_table(entry & ADDRESS_MASK);
+
+    if (pt == 0)
+        return -1;
+
+    entry = pt[i1];
+
+    if (!(entry & PAGE_PRESENT))
+        return -1;
+
+    if (entry & VMM_NO_EXEC)
+        no_exec = 1;
+
+    return no_exec;
 }
